@@ -1,0 +1,826 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "adminUserName": {
+      "type": "string",
+      "metadata": {
+        "description": "Remote desktop user Id"
+      }
+    },
+    "adminPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Remote desktop user password"
+      }
+    },
+    "certificateThumbprint": {
+      "type": "string"
+    },
+    "sourceVaultResourceId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID of the key vault where cluster certificate is stored. The format is /subscriptions/<subscription ID>/resourceGroups/<resource group name>/providers/Microsoft.KeyVault/vaults/<vault name>"
+      }
+    },
+    "certificateUrlValue": {
+      "type": "string",
+      "metadata": {
+        "description": "Refers to the location URL in your key vault where the cluster certificate was uploaded. The format is https://<name of the vault>.vault.azure.net:443/secrets/<exact location>"
+      }
+    },
+    "clusterName": {
+      "type": "string",
+      "metadata": {
+        "description": "The name of the deployed service fabric cluster must be a unique name and match the certificate."
+      }
+    },
+    "MACertKeyVaultSubscriptionId": {
+      "type": "string",
+      "metadata": {
+        "description": "The Subscription Id for the Key vault that contains the MA Certificate."
+      }
+    },
+    "MACertKeyVaultResourceGroupName": {
+      "type": "string",
+      "metadata": {
+        "description": "The Resource group name for the Key vault that contains the MA Certificate."
+      }
+    },
+    "MACertkeyVaultName": {
+      "type": "string",
+      "metadata": {
+        "description": "The name of the Key vault that contains the MA Certificate."
+      }
+    },
+    "userAssignedIdentityName": {
+      "type": "string",
+      "metadata": {
+        "description": "The name of the user assigned identity resource."
+      }
+    },
+    "GcsGenevaAccount": {
+      "type": "string",
+      "metadata": {
+        "description": "The name of the Geneva Configuration Service (GCS) account to use within the Geneva MA VM extension configuration"
+      }
+    },
+    "GcsNamespace": {
+      "type": "string",
+      "metadata": {
+        "description": "The Geneva Configuration Service (GCS) namespace within the account that contains the configuration for the Geneva MA VM extension"
+      }
+    },
+    "GcsConfigVersion": {
+      "type": "string",
+      "metadata": {
+        "description": "The version of the configuration to use within the Geneva MA VM extension configuration"
+      }
+    }
+  },
+  "variables": {
+    "nt0InstanceCount": "6",
+    "location": "[resourceGroup().location]",
+    "dnsName": "[parameters('clusterName')]",
+    "virtualNetworkName": "VNet",
+    "addressPrefix": "10.0.0.0/16",
+    "nicName": "NIC",
+    "lbIPName": "[concat('PublicIP-', parameters('clusterName'))]",
+    "vnetID": "[resourceId('Microsoft.Network/virtualNetworks', variables('virtualNetworkName'))]",
+    "overProvision": "false",
+    "vmssApiVersion": "2022-03-01",
+    "sfrpApiVersion": "2020-12-01-preview",
+    "lbApiVersion": "2018-11-01",
+    "vNetApiVersion": "2018-11-01",
+    "publicIPApiVersion": "2018-11-01",
+    "managedIdentityApiVersion": "2018-11-30",
+    "nt0applicationStartPort": "20000",
+    "nt0applicationEndPort": "30000",
+    "nt0ephemeralStartPort": "49152",
+    "nt0ephemeralEndPort": "65534",
+    "nt0fabricTcpGatewayPort": "19000",
+    "nt0fabricHttpGatewayPort": "19080",
+    "contosoAdsSupportPort": "5000",
+    "subnet0Name": "Subnet-0",
+    "subnet0Prefix": "10.0.0.0/24",
+    "subnet0Ref": "[concat(variables('vnetID'), '/subnets/', variables('subnet0Name'))]",
+    "lbID0": "[resourceId('Microsoft.Network/loadBalancers',concat('LB','-', parameters('clusterName'),'-',variables('vmNodeType0Name')))]",
+    "lbIPConfig0": "[concat(variables('lbID0'), '/frontendIPConfigurations/LoadBalancerIPConfig')]",
+    "lbPoolID0": "[concat(variables('lbID0'), '/backendAddressPools/LoadBalancerBEAddressPool')]",
+    "lbProbeID0": "[concat(variables('lbID0'), '/probes/FabricGatewayProbe')]",
+    "lbHttpProbeID0": "[concat(variables('lbID0'), '/probes/FabricHttpGatewayProbe')]",
+    "vmNodeType0Name": "[toLower(substring(uniqueString(parameters('clusterName')), 0, 9))]",
+    "userAssignedIdentityResourceId": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities/', parameters('userAssignedIdentityName'))]",
+    "vmNodeType0Size": "Standard_D2s_v3",
+    "storageAccountType": "Standard_LRS",
+    "loadBalancedAppPort1": "80",
+    "certificateStoreValue": "My",
+
+
+    "svcFabData": "D:\\SvcFab",
+    "svcFabLogs": "D:\\SvcFab\\Log",
+    "svcFabRuntime": "C:\\Program Files\\Microsoft Service Fabric",
+    "durabilityLevel": "Bronze",
+    "reliabilityLevel": "Bronze",
+    "sfReverseProxyPort": "19081"
+  },
+  "resources": [
+    {
+      "apiVersion": "[variables('vNetApiVersion')]",
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "[variables('virtualNetworkName')]",
+      "location": "[variables('location')]",
+      "dependsOn": [
+        "[concat('Microsoft.Network/networkSecurityGroups/', concat('nsg','-', parameters('clusterName'),'-',variables('subnet0Name')))]"
+      ],
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('addressPrefix')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('subnet0Name')]",
+            "properties": {
+              "addressPrefix": "[variables('subnet0Prefix')]",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', concat('nsg','-', parameters('clusterName'),'-',variables('subnet0Name')))]"
+              }
+            }
+          }
+        ]
+      },
+      "tags": {
+        "resourceType": "Service Fabric",
+        "clusterName": "[parameters('clusterName')]"
+      }
+    },
+    {
+      "apiVersion": "[variables('publicIPApiVersion')]",
+      "type": "Microsoft.Network/publicIPAddresses",
+      "name": "[concat(variables('lbIPName'),'-','0')]",
+      "location": "[variables('location')]",
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {
+        "dnsSettings": {
+          "domainNameLabel": "[variables('dnsName')]"
+        },
+        "publicIPAllocationMethod": "Static",
+        "ipTags": [
+          {
+            "ipTagType": "FirstPartyUsage",
+            "tag": "/Unprivileged"
+          }
+        ]
+      },
+      "tags": {
+        "resourceType": "Service Fabric",
+        "clusterName": "[parameters('clusterName')]"
+      }
+    },
+    {
+      "apiVersion": "[variables('lbApiVersion')]",
+      "type": "Microsoft.Network/loadBalancers",
+      "name": "[concat('LB','-', parameters('clusterName'),'-',variables('vmNodeType0Name'))]",
+      "location": "[variables('location')]",
+      "dependsOn": [
+        "[concat('Microsoft.Network/publicIPAddresses/',concat(variables('lbIPName'),'-','0'))]"
+      ],
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {
+        "frontendIPConfigurations": [
+          {
+            "name": "LoadBalancerIPConfig",
+            "properties": {
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses',concat(variables('lbIPName'),'-','0'))]"
+              }
+            }
+          }
+        ],
+        "backendAddressPools": [
+          {
+            "name": "LoadBalancerBEAddressPool",
+            "properties": {}
+          }
+        ],
+        "loadBalancingRules": [
+          {
+            "name": "LBRule",
+            "properties": {
+              "backendAddressPool": {
+                "id": "[variables('lbPoolID0')]"
+              },
+              "backendPort": "[variables('nt0fabricTcpGatewayPort')]",
+              "enableFloatingIP": "false",
+              "frontendIPConfiguration": {
+                "id": "[variables('lbIPConfig0')]"
+              },
+              "frontendPort": "[variables('nt0fabricTcpGatewayPort')]",
+              "idleTimeoutInMinutes": "5",
+              "probe": {
+                "id": "[variables('lbProbeID0')]"
+              },
+              "protocol": "tcp"
+            }
+          },
+          {
+            "name": "LBHttpRule",
+            "properties": {
+              "backendAddressPool": {
+                "id": "[variables('lbPoolID0')]"
+              },
+              "backendPort": "[variables('nt0fabricHttpGatewayPort')]",
+              "enableFloatingIP": "false",
+              "frontendIPConfiguration": {
+                "id": "[variables('lbIPConfig0')]"
+              },
+              "frontendPort": "[variables('nt0fabricHttpGatewayPort')]",
+              "idleTimeoutInMinutes": "5",
+              "probe": {
+                "id": "[variables('lbHttpProbeID0')]"
+              },
+              "protocol": "tcp"
+            }
+          },
+          {
+            "name": "AppPortLBRule1",
+            "properties": {
+              "backendAddressPool": {
+                "id": "[variables('lbPoolID0')]"
+              },
+              "backendPort": "[variables('contosoAdsSupportPort')]",
+              "enableFloatingIP": false,
+              "frontendIPConfiguration": {
+                "id": "[variables('lbIPConfig0')]"
+              },
+              "frontendPort": "[variables('loadBalancedAppPort1')]",
+              "idleTimeoutInMinutes": 5,
+              "probe": {
+                "id": "[concat(variables('lbID0'), '/probes/ContosoAdsSupport')]"
+              },
+              "protocol": "tcp"
+            }
+          }
+        ],
+        "probes": [
+          {
+            "name": "FabricGatewayProbe",
+            "properties": {
+              "intervalInSeconds": 5,
+              "numberOfProbes": 2,
+              "port": "[variables('nt0fabricTcpGatewayPort')]",
+              "protocol": "tcp"
+            }
+          },
+          {
+            "name": "FabricHttpGatewayProbe",
+            "properties": {
+              "intervalInSeconds": 5,
+              "numberOfProbes": 2,
+              "port": "[variables('nt0fabricHttpGatewayPort')]",
+              "protocol": "tcp"
+            }
+          },
+          {
+            "name": "ContosoAdsSupport",
+            "properties": {
+              "intervalInSeconds": 5,
+              "numberOfProbes": 2,
+              "port": "[variables('contosoAdsSupportPort')]",
+              "protocol": "tcp"
+            }
+          }
+        ],
+        "inboundNatPools": []
+      }
+    },
+    {
+      "apiVersion": "2018-08-01",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "name": "[concat('nsg','-', parameters('clusterName'),'-',variables('subnet0Name'))]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "EV2-To-SF-Deployment",
+            "properties": {
+              "description": "All SF Ports from the EV2",
+              "protocol": "*",
+              "sourceAddressPrefixes": [ "52.225.132.216", "52.176.61.174" ],
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRanges": [ "[variables('nt0fabricTcpGatewayPort')]", "[variables('nt0fabricHttpGatewayPort')]" ],
+              "access": "Allow",
+              "priority": 500,
+              "direction": "Inbound",
+              "sourcePortRanges": []
+            }
+          },
+          {
+            "name": "blockRDP",
+            "properties": {
+              "access": "Deny",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "3389",
+              "direction": "Inbound",
+              "priority": 900,
+              "protocol": "*",
+              "sourceAddressPrefix": "*",
+              "sourcePortRange": "*",
+              "description": "block all RDP traffic"
+            }
+          },
+          {
+            "name": "AllowTrafficFromLB",
+            "properties": {
+              "description": "Allow Traffic from LB",
+              "protocol": "*",
+              "sourcePortRange": "*",
+              "sourceAddressPrefix": "AzureLoadBalancer",
+              "destinationAddressPrefix": "*",
+              "destinationPortRanges": [ "[variables('nt0fabricTcpGatewayPort')]", "[variables('nt0fabricHttpGatewayPort')]" ],
+              "access": "Allow",
+              "priority": 1000,
+              "direction": "Inbound",
+              "sourcePortRanges": []
+            }
+          },
+          {
+            "name": "SF-ManagementPortBlock",
+            "properties": {
+              "description": "Block SF management ports from the Internet",
+              "protocol": "*",
+              "sourcePortRange": "*",
+              "sourceAddressPrefix": "Internet",
+              "destinationAddressPrefix": "*",
+              "destinationPortRanges": [ "[variables('nt0fabricTcpGatewayPort')]", "[variables('nt0fabricHttpGatewayPort')]" ],
+              "access": "Deny",
+              "priority": 2900,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "allowContosoAdsTraffic",
+            "properties": {
+              "access": "Allow",
+              "destinationAddressPrefix": "*",
+              "destinationPortRanges": [ "[variables('contosoAdsSupportPort')]", "80" ],
+              "direction": "Inbound",
+              "priority": 3000,
+              "protocol": "*",
+              "sourceAddressPrefix": "*",
+              "sourcePortRange": "*",
+              "description": "allow contoso ads support traffic"
+            }
+          },
+          {
+            "name": "allowSvcFabCluser",
+            "properties": {
+              "access": "Allow",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "1025-1027",
+              "direction": "Inbound",
+              "priority": 3920,
+              "protocol": "*",
+              "sourceAddressPrefix": "VirtualNetwork",
+              "sourcePortRange": "*",
+              "description": "allow ports within vnet that are used by the fabric to talk between nodes"
+            }
+          },
+          {
+            "name": "allowSvcFabEphemeral",
+            "properties": {
+              "access": "Allow",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "[concat(variables('nt0ephemeralStartPort'), '-', variables('nt0ephemeralEndPort'))]",
+              "direction": "Inbound",
+              "priority": 3930,
+              "protocol": "*",
+              "sourceAddressPrefix": "VirtualNetwork",
+              "sourcePortRange": "*",
+              "description": "allow fabric ephemeral ports within the vnet"
+            }
+          },
+          {
+            "name": "allowSvcFabApplication",
+            "properties": {
+              "access": "Allow",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "[concat(variables('nt0applicationStartPort'), '-', variables('nt0applicationEndPort'))]",
+              "direction": "Inbound",
+              "priority": 3940,
+              "protocol": "*",
+              "sourceAddressPrefix": "VirtualNetwork",
+              "sourcePortRange": "*",
+              "description": "allow fabric application ports within the vnet"
+            }
+          },
+          {
+            "name": "allowSvcFabSMB",
+            "properties": {
+              "access": "Allow",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "445",
+              "direction": "Inbound",
+              "priority": 3950,
+              "protocol": "*",
+              "sourceAddressPrefix": "VirtualNetwork",
+              "sourcePortRange": "*",
+              "description": "allow SMB traffic within the net, used by fabric to move packages around"
+            }
+          },
+          {
+            "name": "blockAll",
+            "properties": {
+              "access": "Deny",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "*",
+              "direction": "Inbound",
+              "priority": 4000,
+              "protocol": "*",
+              "sourceAddressPrefix": "*",
+              "sourcePortRange": "*",
+              "description": "block all traffic except what we've explicitly allowed"
+            }
+          }
+        ]
+      },
+      "tags": {
+        "resourceType": "Service Fabric",
+        "clusterName": "[parameters('clusterName')]"
+      }
+    },
+    {
+      "apiVersion": "[variables('managedIdentityApiVersion')]",
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "name": "[parameters('userAssignedIdentityName')]",
+      "location": "[variables('location')]"
+    },
+    {
+      "apiVersion": "[variables('vmssApiVersion')]",
+      "type": "Microsoft.Compute/virtualMachineScaleSets",
+      "name": "[variables('vmNodeType0Name')]",
+      "location": "[variables('location')]",
+      "zones": [
+        "1",
+        "2",
+        "3"
+      ],
+      "dependsOn": [
+        "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]",
+        "[concat('Microsoft.Network/loadBalancers/', concat('LB','-', parameters('clusterName'),'-',variables('vmNodeType0Name')))]",
+        "[variables('userAssignedIdentityResourceId')]"
+      ],
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[variables('userAssignedIdentityResourceId')]": {}
+        }
+      },
+      "properties": {
+        "overprovision": "[variables('overProvision')]",
+        "singlePlacementGroup": true,
+        "zoneBalance": true,
+        "upgradePolicy": {
+          "mode": "Automatic",
+          "automaticOSUpgradePolicy": {
+            "enableAutomaticOSUpgrade": false
+          }
+        },
+        "virtualMachineProfile": {
+          "extensionProfile": {
+            "extensions": [
+              {
+                "name": "Microsoft.Azure.Geneva.GenevaMonitoring",
+                "properties": {
+                  "publisher": "Microsoft.Azure.Geneva",
+                  "type": "GenevaMonitoring",
+                  "typeHandlerVersion": "2.0",
+                  "autoUpgradeMinorVersion": true,
+                  "enableAutomaticUpgrade": true,
+                  "settings": {
+                    "configurations": [
+                      {
+                        "ServiceArguments": {
+                          "Version": "1.0"
+                        },
+                        "UserArguments": {
+                          "GcsGenevaAccount": "[parameters('GcsGenevaAccount')]",
+                          "GcsAuthIdType": "AuthKeyVault",
+                          "GcsAuthId": "ppe.geneva.keyvault.bootcamp.azure.com",
+                          "LocalPath": "c:\\Monitoring_1",
+                          "GenevaConfigVersion": "[parameters('GcsConfigVersion')]",
+                          "GcsEnvironment": "DiagnosticsProd",
+                          "GcsNamespace": "[parameters('GcsNamespace')]",
+                          "GcsRegion": "[resourceGroup().location]",
+                          "TenantKey": "ContosoSupportDataPlane"
+                        },
+                        "ConstantVariables": {
+                          "MONITORING_TENANT": "[parameters('clusterName')]",
+                          "MONITORING_ROLE": "ContosoAdsSupport",
+                          "MONITORING_NODETYPE": "[variables('vmNodeType0Name')]"
+                        },
+                        "ExpandVariables": {
+                          "MONITORING_ROLE_INSTANCE": "%MA_RoleEnvironment_VMName%",
+                          "MONITORING_NODENAME": "_%MA_RoleEnvironment_VMName%"
+                        }
+                      }
+                    ]
+                  },
+                  "protectedSettings": {}
+                }
+              },
+              {
+                "name": "[concat('ServiceFabricNodeVmExt','_vmNodeType0Name')]",
+                "properties": {
+                  "type": "ServiceFabricNode",
+                  "autoUpgradeMinorVersion": true,
+                  "protectedSettings": {},
+                  "publisher": "Microsoft.Azure.ServiceFabric",
+                  "settings": {
+                    "clusterEndpoint": "[reference(parameters('clusterName')).clusterEndpoint]",
+                    "nodeTypeRef": "[variables('vmNodeType0Name')]",
+                    "dataPath": "[variables('svcFabData')]",
+                    "durabilityLevel": "[variables('durabilityLevel')]",
+                    "enableParallelJobs": true,
+                    "nicPrefixOverride": "[variables('subnet0Prefix')]",
+                    "certificate": {
+                      "thumbprint": "[parameters('certificateThumbprint')]",
+                      "x509StoreName": "[variables('certificateStoreValue')]"
+                    },
+                    "MonitoringExtensionSettings": {
+                      "WaitForProvisioningComplete": true,
+                      "ProvisioningCheckIntervalInSeconds": 10,
+                      "MaxWaitDurationInSeconds": 300
+                    }
+                  },
+                  "typeHandlerVersion": "1.1"
+                }
+              }//,
+              //{
+              //  "name": "[concat('VMIaaSAntimalware','_vmNodeType0Name')]",
+              //  "properties": {
+              //    "publisher": "Microsoft.Azure.Security",
+              //    "type": "IaaSAntimalware",
+              //    "autoUpgradeMinorVersion": true,
+              //    "typeHandlerVersion": "1.5",
+              //    "settings": {
+              //      "AntimalwareEnabled": "true",
+              //      "Exclusions": {
+              //        "Paths": "[concat(variables('svcFabData'), ';', variables('svcFabLogs'), ';', variables('svcFabRuntime'))]",
+              //        "Processes": "Fabric.exe;FabricHost.exe;FabricInstallerService.exe;FabricSetup.exe;FabricDeployer.exe;ImageBuilder.exe;FabricGateway.exe;FabricDCA.exe;FabricFAS.exe;FabricUOS.exe;FabricRM.exe;FileStoreService.exe"
+              //      },
+              //      "RealtimeProtectionEnabled": "true",
+              //      "ScheduledScanSettings": {
+              //        "isEnabled": "true",
+              //        "scanType": "Quick",
+              //        "day": "7",
+              //        "time": "120"
+              //      }
+              //    },
+              //    "protectedSettings": {} // No protected settings are required for this extension
+              //  }
+             // }
+              
+              ,
+              {
+                "name": "KeyVaultForWindows",
+                "properties": {
+                  "publisher": "Microsoft.Azure.KeyVault",
+                  "type": "KeyVaultForWindows",
+                  "autoUpgradeMinorVersion": true,
+                  "enableAutomaticUpgrade": true,
+                  "typeHandlerVersion": "1.0",
+                  "settings": {
+                    "secretsManagementSettings": {
+                      "pollingIntervalInS": "3600",
+                      "certificateStoreName": "MY",
+                      "certificateStoreLocation": "LocalMachine",
+                      "observedCertificates": [ "https://contosoadskeyvault.vault.azure.net/secrets/ABCGenevaMACert" ]
+                    }
+                  }
+                }
+              },
+              {
+                "name": "HealthExtension",
+                "properties": {
+                  "publisher": "Microsoft.ManagedServices",
+                  "type": "ApplicationHealthWindows",
+                  "autoUpgradeMinorVersion": true,
+                  "enableAutomaticUpgrade": true,
+                  "typeHandlerVersion": "1.0",
+                  "settings": {
+                    "protocol": "HTTP",
+                    "port": 5000,
+                    "requestPath": "/",
+                    "intervalInSeconds": 5,
+                    "numberOfProbes": 1
+                  }
+                }
+              }
+            ]
+          },
+          "networkProfile": {
+            "networkInterfaceConfigurations": [
+              {
+                "name": "[concat(variables('nicName'), '-0')]",
+                "properties": {
+                  "ipConfigurations": [
+                    {
+                      "name": "[concat(variables('nicName'),'-',0)]",
+                      "properties": {
+                        "loadBalancerBackendAddressPools": [
+                          {
+                            "id": "[variables('lbPoolID0')]"
+                          }
+                        ],
+                        "loadBalancerInboundNatPools": [],
+                        "subnet": {
+                          "id": "[variables('subnet0Ref')]"
+                        }
+                      }
+                    }
+                  ],
+                  "primary": true
+                }
+              }
+            ]
+          },
+          "osProfile": {
+            "adminPassword": "[parameters('adminPassword')]",
+            "adminUsername": "[parameters('adminUsername')]",
+            "computerNamePrefix": "[variables('vmNodeType0Name')]",
+            "secrets": [
+              {
+                "sourceVault": {
+                  "id": "[parameters('sourceVaultResourceId')]"
+                },
+                "vaultCertificates": [
+                  {
+                    "certificateStore": "[variables('certificateStoreValue')]",
+                    "certificateUrl": "[parameters('certificateUrlValue')]"
+                  }
+                ]
+              }
+            ]
+          },
+          "storageProfile": {
+            "imageReference": {
+              //1P image reference
+              "sharedGalleryImageId": "/sharedGalleries/WINDOWSSERVER.DOTNET.1P/images/2022-DATACENTER-AZURE-EDITION-CORE/versions/latest"
+                        }
+          },
+          "securityProfile": {
+            "securityType": "TrustedLaunch",
+            "uefiSettings": {
+              "secureBootEnabled": true,
+              "vTpmEnabled": true
+            }
+          }
+
+        }
+      },
+      "sku": {
+        "name": "[variables('vmNodeType0Size')]",
+        "capacity": "[variables('nt0InstanceCount')]",
+        "tier": "Standard"
+      },
+      "tags": {
+        "resourceType": "Service Fabric",
+        "clusterName": "[parameters('clusterName')]"
+      }
+    },
+    {
+      "apiVersion": "[variables('sfrpApiVersion')]",
+      "type": "Microsoft.ServiceFabric/clusters",
+      "name": "[parameters('clusterName')]",
+      "location": "[variables('location')]",
+      "dependsOn": [],
+      "properties": {
+        "addonFeatures": [
+          "DnsService",
+          "RepairManager"
+        ],
+        "certificate": {
+          "thumbprint": "[parameters('certificateThumbprint')]",
+          "x509StoreName": "[variables('certificateStoreValue')]"
+        },
+        "clusterState": "Default",
+        "fabricSettings": [
+          {
+            "parameters": [
+              {
+                "name": "ClusterProtectionLevel",
+                "value": "EncryptAndSign"
+              }
+            ],
+            "name": "Security"
+          },
+          {
+            "name": "EventStoreService",
+            "parameters": [
+              {
+                "name": "TargetReplicaSetSize",
+                "value": "3"
+              },
+              {
+                "name": "MinReplicaSetSize",
+                "value": "1"
+              }
+            ]
+          },
+          {
+            "name": "ManagedIdentityTokenService",
+            "parameters": [
+              {
+                "name": "IsEnabled",
+                "value": "true"
+              }
+            ]
+          }
+        ],
+        "managementEndpoint": "[concat('https://',reference(concat(variables('lbIPName'),'-','0')).dnsSettings.fqdn,':',variables('nt0fabricHttpGatewayPort'))]",
+        "nodeTypes": [
+          {
+            "name": "[variables('vmNodeType0Name')]",
+            "applicationPorts": {
+              "endPort": "[variables('nt0applicationEndPort')]",
+              "startPort": "[variables('nt0applicationStartPort')]"
+            },
+            "clientConnectionEndpointPort": "[variables('nt0fabricTcpGatewayPort')]",
+            "durabilityLevel": "[variables('durabilityLevel')]",
+            "ephemeralPorts": {
+              "endPort": "[variables('nt0ephemeralEndPort')]",
+              "startPort": "[variables('nt0ephemeralStartPort')]"
+            },
+            "httpGatewayEndpointPort": "[variables('nt0fabricHttpGatewayPort')]",
+            "isPrimary": true,
+            "reverseProxyEndpointPort": "[variables('sfReverseProxyPort')]",
+            "vmInstanceCount": "[variables('nt0InstanceCount')]",
+            "multipleAvailabilityZones": true
+          }
+        ],
+        "provisioningState": "Default",
+        "reliabilityLevel": "[variables('reliabilityLevel')]",
+        "sfZonalUpgradeMode": "Hierarchical",
+        "vmssZonalUpgradeMode": "Parallel",
+        "vmImage": "Windows"
+      },
+      "tags": {
+        "resourceType": "Service Fabric",
+        "clusterName": "[parameters('clusterName')]"
+      }
+    },
+    {
+      "apiVersion": "2019-05-01",
+      "dependsOn": [
+        "[variables('userAssignedIdentityResourceId')]"
+      ],
+      "name": "grant-access",
+      "properties": {
+        "mode": "Incremental",
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "resources": [
+            {
+              "apiVersion": "2019-09-01",
+              "name": "[concat(parameters('MACertkeyVaultName'), '/add')]",
+              "properties": {
+                "accessPolicies": [
+                  {
+                    "dependsOn": [
+                      "[variables('userAssignedIdentityResourceId')]"
+                    ],
+                    "objectId": "[reference(variables('userAssignedIdentityResourceId'), '2018-11-30').principalId]",
+                    "permissions": {
+                      "secrets": [ "get", "list" ],
+                      "certificates": [ "get", "list" ]
+                    },
+                    "tenantId": "[reference(variables('userAssignedIdentityResourceId'), '2018-11-30').tenantId]"
+                  }
+                ]
+              },
+              "type": "Microsoft.KeyVault/vaults/accessPolicies"
+            }
+          ]
+        }
+      },
+      "resourceGroup": "[parameters('MACertKeyVaultResourceGroupName')]",
+      "subscriptionId": "[parameters('MACertKeyVaultSubscriptionId')]",
+      "type": "Microsoft.Resources/deployments"
+    }
+  ],
+  "outputs": {
+    "clusterProperties": {
+      "value": "[reference(parameters('clusterName'))]",
+      "type": "object"
+    }
+  }
+}

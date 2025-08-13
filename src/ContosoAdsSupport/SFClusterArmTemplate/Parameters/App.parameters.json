@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+  "contentVersion": "2.0.0.0",
+  "paths": [
+    {
+      "parameterReference": "applicationPackageUrl"
+    }
+  ],
+  "parameters": {
+    "clusterName": {
+      "value": "__Cluster_Name__"
+    },
+    "applicationTypeName": {
+      "value": "ContosoSupport.API.SF.GEType"
+    },
+    "applicationTypeVersion": {
+      "value": "1.0.0"
+    },
+    "applicationPackageUrl": {
+      "value": "Artifacts\\ContosoSupport.API.SF.GE.202410251449.sfpkg"
+    },
+    "applicationName": {
+      "value": "ContosoSupport.API.SF.GE"
+    },
+    "consoleServiceName": {
+      "value": "ContosoSupport.API.SF.GE~ContosoSupport.API"
+    },
+    "consoleServiceTypeName": {
+      "value": "ContosoSupport.APIType"
+    },
+    "userAssignedIdentityName": {
+      "value": "__User_Assigned_Identity_Name__"
+    }
+  }
+}
+

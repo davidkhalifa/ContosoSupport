@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "adminUserName": {
+      "value": "azureadmin"
+    },
+    "certificateThumbprint": {
+      "value": "__Service_Fabric_Signin_Certificate_Thumbprint__"
+    },
+    "sourceVaultResourceId": {
+      "value": "/subscriptions/__Service_Fabric_Signin_Certificate_SubscriptionId__/resourceGroups/ContosoAds-CentralResources/providers/Microsoft.KeyVault/vaults/__Service_Fabric_Signin_Certificate_Keyvault__"
+    },
+    "certificateUrlValue": {
+      "value": "__Service_Fabric_Signin_Certificate_Secret_Url__"
+    },
+    "adminPassword": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/7adeba7f-4949-4201-b9c2-59283fcb5e11/resourceGroups/ContosoAds-CentralResources/providers/Microsoft.KeyVault/vaults/ContosoAdsKeyVault"
+        },
+        "secretName": "SFPassword"
+      }
+    },
+    "clusterName": {
+      "value": "__Cluster_Name__"
+    },
+    "MACertKeyVaultSubscriptionId": {
+      "value": "7adeba7f-4949-4201-b9c2-59283fcb5e11"
+    },
+    "MACertKeyVaultResourceGroupName": {
+      "value": "ContosoAds-CentralResources"
+    },
+    "MACertkeyVaultName": {
+      "value": "ContosoAdsKeyVault"
+    },
+    "userAssignedIdentityName": {
+      "value": "__User_Assigned_Identity_Name__"
+    },
+    "GcsGenevaAccount": {
+        "value": "__GCS_Account_Name__"
+    },
+    "GcsNamespace": {
+        "value": "__GCS_Namespace__"
+    },
+    "GcsConfigVersion": {
+        "value": "__GCS_Config_Version__"
+    }
+  }
+}

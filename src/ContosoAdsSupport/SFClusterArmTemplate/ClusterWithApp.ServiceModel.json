@@ -1,0 +1,44 @@
+﻿{
+  "$schema": "https://ev2schema.azure.net/schemas/2020-01-01/serviceModel.json",
+  "contentVersion": "2.0.0.0",
+  "serviceMetadata": {
+    "serviceGroup": "SFRP Cluster with App",
+    "environment": "Test"
+  },
+  "serviceResourceGroupDefinitions": [
+    {
+      "name": "SFRPClusterResourceGroupDefinition",
+      "serviceResourceDefinitions": [
+        {
+          "name": "SFRPClusterDefinition",
+          "armTemplatePath": "Templates\\ServiceFabricCluster.template.json"
+        },
+        {
+          "name": "SFRPAppDefinition",
+          "armTemplatePath": "Templates\\App.template.json"
+        }
+      ]
+    }
+  ],
+  "serviceResourceGroups": [
+    {
+      "azureResourceGroupName": "<subscriptionname><phone-last-4-digits>",
+      "location": "centralus",
+      "instanceOf": "SFRPClusterResourceGroupDefinition",
+      "azureSubscriptionId": "<SubscriptionId>",
+      "scopeTags": [ { "name": "AllParameters" } ],
+      "serviceResources": [
+        {
+          "name": "Cluster",
+          "instanceOf": "SFRPClusterDefinition",
+          "armParametersPath": "Parameters\\ServiceFabricCluster.parameters.json"
+        },
+        {
+          "name": "App",
+          "instanceOf": "SFRPAppDefinition",
+          "armParametersPath": "Parameters\\App.parameters.json"
+        }
+      ]
+    }
+  ]
+}

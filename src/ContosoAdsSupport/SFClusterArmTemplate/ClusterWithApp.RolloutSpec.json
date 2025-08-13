@@ -1,0 +1,35 @@
+﻿{
+  "$schema": "https://ev2schema.azure.net/schemas/2020-01-01/rolloutSpecification.json",
+  "contentVersion": "1.0.0.0",
+  "rolloutMetadata": {
+    "serviceModelPath": "ClusterWithApp.ServiceModel.json",
+    "scopeBindingsPath": "ScopeBindings.json",
+    "name": "ClusterWithApp 2.0.0.0",
+    "rolloutType": "Major",
+    "buildSource": {
+      "parameters": {
+        "versionFile": "BuildVer.txt"
+      }
+    },
+    "notification": {
+      "email": {
+        "to": "<Alias>@microsoft.com"
+      }
+    }
+  },
+  "orchestratedSteps": [
+    {
+      "name": "Cluster-Deploy",
+      "targetType": "ServiceResource",
+      "targetName": "Cluster",
+      "actions": [ "Deploy" ]
+    },
+    {
+      "name": "App-Deploy",
+      "targetType": "ServiceResource",
+      "targetName": "App",
+      "actions": [ "Deploy" ],
+      "dependsOn": [ "Cluster-Deploy" ]
+    }
+  ]
+}
